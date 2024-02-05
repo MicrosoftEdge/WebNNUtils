@@ -18,13 +18,20 @@ def prepend_let(name):
       var_name.add(name);
       return "let " + name;
 
+weights_file = open("weights.bin", "wb");
+last_bin_file_pos = 0;
 def get_weights_and_biases_operand(name, model_proto):
+  global last_bin_file_pos;
   # Loop through graph and find the corresponding weights and biases
   for ten_proto in model_proto.graph.initializer:
       if ten_proto.name == name:
           weights = onnx.numpy_helper.to_array(ten_proto);
-          print(prepend_let("operand_value") + " = new Float32Array(" + np.array2string(weights.ravel(), threshold=sys.maxsize, separator=",") + ");");
-          #print(prepend_let("operand_value") + " = null;");
+          weights = weights.ravel();
+          weights_bytes = weights.tobytes();
+          weights_file.write(weights_bytes);
+          binary_size = len(weights_bytes);
+          print(prepend_let("operand_value") + " = new Float32Array(weights_buffer, " + str(last_bin_file_pos) + ", " + str(int(binary_size/4)) + ");");
+          last_bin_file_pos = last_bin_file_pos + binary_size;
           operandDesc = prepend_let("operand_desc") + " = {type: 'float32', dataType: 'float32', dimensions: " + str(ten_proto.dims) + "};";
           print(operandDesc);
           declaration = "const " + operand_js_name(ten_proto.name) + " = builder.constant(operand_desc, operand_value);"
@@ -130,7 +137,7 @@ model_file = "D:\\Projects\\WebML\\Onnxwebtest\\VideoSuperResolution-FP32.onnx";
 model_proto = onnx.load(model_file)
 operators = set();
 
-print("function loadModelGraph(operand_input, builder) {")
+print("function loadModelGraph(operand_input, weights_buffer, builder) {")
 
 # Traverse each node in the graph
 last_node = None;
