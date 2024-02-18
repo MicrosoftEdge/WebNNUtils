@@ -1,0 +1,2 @@
+node_modules
+Chat/models/decoder_model_merged_quantized.onnx

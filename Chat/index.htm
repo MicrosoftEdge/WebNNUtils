@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+    <head>
+      <link rel="stylesheet" href="style.css">
+      <script src="node_modules/onnxruntime-web/dist/ort.wasm.min.js"></script>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Rapid Chat</h1>
+            <h2>Talk to a LLAMA, see what it knows.</h2>
+          
+            <p class="comment">This begins one morning with my friend in San Diego telling me about an earthquake they just had.</p>
+          
+            <div class="imessage">
+            </div>
+            <textarea id="input" name="input">Hi there !</textarea>
+            <button id="send"></button>
+        </div>
+    </body>
+    <script type="module" >
+        import {AutoTokenizer} from '/node_modules/@xenova/transformers/dist/transformers.js';
+        
+        let tokenizer = null;
+        let onnx_session = null;
+        async function main(input)
+        {
+            if (!tokenizer)
+            {
+              tokenizer = await AutoTokenizer.from_pretrained('tokenizer');
+            }
+            const { input_ids } = await tokenizer(input);
+ 
+            if (!onnx_session) {
+                onnx_session = await ort.InferenceSession.create('./models/decoder_model_merged_quantized.onnx', {
+                    quantized: true,
+                    session_options: {
+                        executionProviders: ["webgpu"]
+                    }
+                });
+            }
+            let past_sequence_length = 0;
+            let past_key_values_size = 1 * 4 * past_sequence_length * 64;
+            const results = await onnx_session.run(
+                { 
+                    input_ids: new ort.Tensor(input_ids.data, input_ids.dims),
+                    attention_mask: new ort.Tensor(new BigInt64Array(past_sequence_length + 1), [1, past_sequence_length + 1]), 
+                    position_ids: new ort.Tensor(new BigInt64Array(input_ids.data.length), [1,input_ids.data.length]), 
+                    'past_key_values.0.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.0.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.1.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.1.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.2.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.2.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.3.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.3.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.4.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.4.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.5.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.5.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.6.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.6.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.7.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.7.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.8.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.8.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.9.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.9.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.10.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.10.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.11.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.11.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.12.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.12.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.13.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.13.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.14.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.14.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.15.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.15.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.16.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.16.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.17.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.17.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.18.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.18.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.19.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.19.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.20.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.20.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.21.key': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                    'past_key_values.21.value': new ort.Tensor(new Float32Array(past_key_values_size), [1,4,past_sequence_length,64]),
+                });
+            console.log(input_ids.dims)
+            console.log(results);
+
+            const output = await tokenizer.decode(input_ids);
+            return output.slice(4);
+        }
+        async function onSend() {
+            const inputText = document.getElementById("input").value;
+            const result = await main(inputText);
+            let input = document.createElement("p");
+            input.setAttribute("class", "from-me");
+            input.innerText = inputText;
+            document.getElementsByClassName("imessage")[0].appendChild(input);
+            let reply = document.createElement("p");
+            reply.setAttribute("class", "from-them");
+            reply.innerText = result;
+            document.getElementsByClassName("imessage")[0].appendChild(reply);
+        }
+        document.getElementById("send").onclick = onSend;
+    </script>
+</html>
