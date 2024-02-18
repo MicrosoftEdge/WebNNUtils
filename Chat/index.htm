@@ -9,7 +9,7 @@
             <h1>Rapid Chat</h1>
             <h2>Talk to a LLAMA, see what it knows.</h2>
           
-            <p class="comment">This begins one morning with my friend in San Diego telling me about an earthquake they just had.</p>
+            <p class="comment">Current backend is onnx-web-runtime-wasm.</p>
           
             <div class="imessage">
             </div>
@@ -37,7 +37,7 @@
               tokenizer = await AutoTokenizer.from_pretrained('tokenizer');
             }
             if (!onnx_session) {
-                onnx_session = await ort.InferenceSession.create('./models/tokenizer/onnx/decoder_model_merged_quantized.onnx', {
+                onnx_session = await ort.InferenceSession.create('./models/onnx/decoder_model_merged_quantized.onnx', {
                     quantized: true,
                     session_options: {
                         executionProviders: ["wasm"]
@@ -178,6 +178,7 @@
             reply.setAttribute("class", "from-them");
             document.getElementsByClassName("imessage")[0].appendChild(reply);
             update_element = reply;
+            reply.innerText = "...";
             main(prompt);
         }
         document.getElementById("send").onclick = onSend;
