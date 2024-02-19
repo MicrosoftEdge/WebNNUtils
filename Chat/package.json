@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "@xenova/transformers": "^2.15.0",
-    "onnxruntime-web": "^1.17.0"
-  }
-}
