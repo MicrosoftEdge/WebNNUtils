@@ -12,7 +12,7 @@ def operand_js_name(name):
 
 # Sanitize the name to be a valid JavaScript variable name
 def js_name(name):
-   return name.replace(".", "_").replace("::", "_");
+   return name.replace(".", "_").replace("::", "_").replace("/", "_");
 
 used_variable_names = set()
 # Adds the keyword let, if the name has not been used before.
@@ -23,10 +23,8 @@ def prepend_let(name):
       used_variable_names.add(name)
       return "let " + name;
 
-
 weights_file = None
 last_bin_file_pos = 0;
-# Writes the weights and biases to the weights file and returns a operand name for the weights and biases.
 def get_weights_and_biases_operand(name, model_proto):
   global last_bin_file_pos
   for ten_proto in model_proto.graph.initializer:
@@ -111,137 +109,28 @@ def generateDepthToSpace(node, model_proto):
    print("transpose_options.permutation = [0, 1, 4, 2, 5, 3]")
    print("depth_to_space_tmp = builder.transpose(depth_to_space_tmp, transpose_options)");
    print(f"{operand_js_name(node.output[0])} = builder.reshape(depth_to_space_tmp, [depth_to_space_shape[0], depth_to_space_shape[1] / {blocksize * blocksize}, depth_to_space_shape[2] * {blocksize}, depth_to_space_shape[3] * {blocksize}])")
-   
 
-def translate_node_to_webnn(node, model_proto):
-   match node.op_type:
-    case "Conv":
-       generateConv2D(node, model_proto);
-    case "Relu":
-       generateUnary("relu", node, model_proto);
-    case "GlobalAveragePool":
-       generateGobalAveragePool(node, model_proto);
-    case "Sigmoid":
-       generateUnary("sigmoid", node, model_proto);
-    case "Mul":
-       generateBinary("mul", node, model_proto);
-    case "Add":
-       generateBinary("add", node, model_proto);
-    case "DepthToSpace":
-       generateDepthToSpace(node, model_proto);
-    case _:
-       print("// Unsupported Node {}!".format(node.op_type), file=sys.stderr)
-       print("/*", file=sys.stderr)
-       print(node, file=sys.stderr)
-       print("*/", file=sys.stderr)
-       print("}", file=sys.stderr)
-       sys.exit()
-argparse
-
-def operand_js_name(name):
-   return "operand_" + js_name(name);
-
-def js_name(name):
-   return name.replace(".", "_").replace("::", "_");
-
-
-used_variable_names = set()
-def prepend_let(name):
-   if name in used_variable_names:
-      return name;
+def generateConstant(node, model_proto):
+   global last_bin_file_pos
+   if node.attribute[0].t.data_type == 7:
+      bytes_written = weights_file.write(node.attribute[0].t.raw_data)
+      print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64'}}, new BigInt64Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/8)}))");
+      last_bin_file_pos = last_bin_file_pos + bytes_written
+   elif node.attribute[0].t.data_type == 1:
+      bytes_written = weights_file.write(node.attribute[0].t.raw_data)
+      print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64'}}, new Float32Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/4)}))");
+      last_bin_file_pos = last_bin_file_pos + bytes_written
    else:
-      used_variable_names.add(name)
-      return "let " + name;
+      treminateForUnsupportedNode(node);
 
-
-weights_file = None
-last_bin_file_pos = 0;
-def get_weights_and_biases_operand(name, model_proto):
-  global last_bin_file_pos
-  for ten_proto in model_proto.graph.initializer:
-      if ten_proto.name == name:
-          weights = onnx.numpy_helper.to_array(ten_proto)
-          weights = weights.ravel()
-          weights_bytes = weights.tobytes()
-          weights_file.write(weights_bytes)
-          binary_size = len(weights_bytes)
-          print(f"{prepend_let('operand_value')} = new Float32Array(weights_buffer, {last_bin_file_pos}, {int(binary_size/4)});")
-          last_bin_file_pos = last_bin_file_pos + binary_size
-          operandDesc = f"{prepend_let('operand_desc')} = {{type: 'float32', dataType: 'float32', dimensions: {str(ten_proto.dims)}}};"
-          print(operandDesc)
-          declaration = f"const {operand_js_name(ten_proto.name)} = builder.constant(operand_desc, operand_value);"
-          print(declaration)
-  return operand_js_name(name)
-
-def generateConv2D(node, model_proto):
-   print(f"{prepend_let('conv2d_options')} = {{}};")
-   layer_input_name = ""
-   layer_filter_name = ""
-   for input_name in node.input:
-      if ".weight" in input_name:
-         layer_filter_name = get_weights_and_biases_operand(
-             input_name, model_proto)
-      elif ".bias" in input_name:
-         print(
-             f"conv2d_options.bias = {get_weights_and_biases_operand(input_name, model_proto)}")
-      else:
-         layer_input_name = operand_js_name(input_name)
-
-   for attribute in node.attribute:
-      match attribute.name:
-         case "group":
-            print(f"conv2d_options.groups = {attribute.i};")
-         case "pads":
-            print(f"conv2d_options.padding = {attribute.ints};")
-         case "strides":
-            print(f"conv2d_options.strides = {attribute.ints};")
-         case "dilations":
-            print(f"conv2d_options.dilations = {attribute.ints};")
-   print(
-       f"let {operand_js_name(node.output[0])} = builder.conv2d({layer_input_name}, {layer_filter_name}, conv2d_options);")
-   return
-
-def generateUnary(op, node, model_proto):
-   print(
-       f"const {operand_js_name(node.output[0])} = builder.{op}({operand_js_name(node.input[0])})")
-
-def generateBinary(op, node, model_proto):
-   print(
-       f"const {operand_js_name(node.output[0])} = builder.{op}({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})")
-
-def generateGobalAveragePool(node, model_proto):
-   print(
-       f"{prepend_let('average_pool_window')} = {operand_js_name(node.input[0])}.shape().slice(-2);")
-   print(
-       f"{prepend_let('average_pool_output_size')} = {operand_js_name(node.input[0])}.shape().slice(0, -2);")
-   print(f"{prepend_let('pool2d_options')} = {{}};")
-   print("pool2d_options.windowDimensions = average_pool_window")
-   print(
-       f"const {operand_js_name(node.output[0])} = builder.averagePool2d({operand_js_name(node.input[0])}, pool2d_options)")
-
-def generateDepthToSpace(node, model_proto):
-   mode = ""
-   blocksize = 0
-   for attribute in node.attribute:
-      match attribute.name:
-         case "mode":
-            mode = attribute.s.decode('UTF-8')
-         case "blocksize":
-            blocksize = attribute.i
-   if mode != "CRD":
-      print("// Only CRD is supported for Depth to space")
-      sys.exit()
-
-   print(
-       f"{prepend_let('depth_to_space_shape')} = {operand_js_name(node.input[0])}.shape();")
-   print(
-       f"{prepend_let('depth_to_space_tmp')} = builder.reshape({operand_js_name(node.input[0])}, [depth_to_space_shape[0], depth_to_space_shape[1] / {blocksize * blocksize}, {blocksize}, {blocksize}, depth_to_space_shape[2], depth_to_space_shape[3]])")
-   print(f"{prepend_let('transpose_options')} = {{}}")
-   print("transpose_options.permutation = [0, 1, 4, 2, 5, 3]")
-   print("depth_to_space_tmp = builder.transpose(depth_to_space_tmp, transpose_options)");
-   print(f"{operand_js_name(node.output[0])} = builder.reshape(depth_to_space_tmp, [depth_to_space_shape[0], depth_to_space_shape[1] / {blocksize * blocksize}, depth_to_space_shape[2] * {blocksize}, depth_to_space_shape[3] * {blocksize}])")
+def treminateForUnsupportedNode(node):
+   print("// Unsupported Node {}!".format(node.op_type), file=sys.stderr)
+   print("/*", file=sys.stderr)
+   print(node, file=sys.stderr)
+   print("*/", file=sys.stderr)
+   print("}", file=sys.stderr)
+   sys.exit()
    
-
 def translate_node_to_webnn(node, model_proto):
    match node.op_type:
     case "Conv":
@@ -258,13 +147,10 @@ def translate_node_to_webnn(node, model_proto):
        generateBinary("add", node, model_proto);
     case "DepthToSpace":
        generateDepthToSpace(node, model_proto);
+    case "Constant":
+       generateConstant(node, model_proto);
     case _:
-       print("// Unsupported Node {}!".format(node.op_type), file=sys.stderr)
-       print("/*", file=sys.stderr)
-       print(node, file=sys.stderr)
-       print("*/", file=sys.stderr)
-       print("}", file=sys.stderr)
-       sys.exit()
+       treminateForUnsupportedNode(node);
 
 
 if __name__ == "__main__":
