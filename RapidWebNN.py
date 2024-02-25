@@ -182,6 +182,11 @@ def generateLeakyRelu(node, model_proto):
     permutation = str(node.attribute[0].ints);
     print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.leakyRelu({operand_js_name(node.input[0])}, {{ alpha: {node.attribute[0].f} }})");
 
+def generatePlaceHolder(node, model_proto):
+   print(f"// {prepend_let(operand_js_name(node.output[0]))} place holder for unsupported op {node.op_type}");
+   print("// Place Holding Node {}!".format(node.op_type), file=sys.stderr)
+   print(node, file=sys.stderr)
+          
 def translate_node_to_webnn(node, model_proto):
    match node.op_type:
     case "Conv":
@@ -220,6 +225,8 @@ def translate_node_to_webnn(node, model_proto):
        generateTranspose(node, model_proto);
     case "LeakyRelu":
        generateLeakyRelu(node, model_proto); 
+    case "Resize":
+       generatePlaceHolder(node, model_proto);
     case _:
        terminateForUnsupportedNode(node);
 
