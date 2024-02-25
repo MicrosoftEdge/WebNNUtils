@@ -1,10 +1,24 @@
 
 function InstallCpuOps(builder) {
+    function GenerateMLOperandFromNumber(val) {
+       if(!Number.isInteger(val) && Number.isFinite(val))
+       {
+            // float case
+            let array_buffer_view = new Float32Array(new ArrayBuffer(4));
+            array_buffer_view[0] = val;
+            return builder.constant({type: 'float32', dataType: 'float32', dimensions: [1]}, array_buffer_view);
+       }
+       throw("GenerateMLOperandFromNumber non float is not yet implemented.");
+    }
     function mul(original) {
         return function (...args) {
             if (typeof args[0] === 'number' && typeof args[1] === 'number')
             {
                 return args[0] * args[1];
+            }
+            if (typeof args[1] === 'number')
+            {
+                args[1] = GenerateMLOperandFromNumber(args[1]);
             }
             return original.apply(this, args);
         };
