@@ -5,6 +5,7 @@ import onnx.numpy_helper
 import numpy as np
 import sys
 import argparse
+import struct
 
 # Prepends operand to the name to avoid conflicts with other variables.
 def operand_js_name(name):
@@ -113,24 +114,74 @@ def generateDepthToSpace(node, model_proto):
 def generateConstant(node, model_proto):
    global last_bin_file_pos
    if node.attribute[0].t.data_type == 7:
-      bytes_written = weights_file.write(node.attribute[0].t.raw_data)
-      print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64'}}, new BigInt64Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/8)}))");
-      last_bin_file_pos = last_bin_file_pos + bytes_written
+      if (node.attribute[0].t.dims and node.attribute[0].t.dims[0] != 1 and len(node.attribute[0].t.dims) > 1):
+         # We dont support constant integer arrays yet.
+         terminateForUnsupportedNode(node);
+      print(f"const {operand_js_name(node.output[0])} = {int.from_bytes(node.attribute[0].t.raw_data, byteorder='little')}");
    elif node.attribute[0].t.data_type == 1:
-      bytes_written = weights_file.write(node.attribute[0].t.raw_data)
-      print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64'}}, new Float32Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/4)}))");
-      last_bin_file_pos = last_bin_file_pos + bytes_written
+      dims = 1;
+      if node.attribute[0].t.dims:
+         if (len(node.attribute[0].t.dims) > 1):
+            # We dont support more than 1D array constant.
+            terminateForUnsupportedNode(node);
+         dims = node.attribute[0].t.dims[0];
+      format_string = f'<{dims}f'
+      float_value = struct.unpack(format_string, node.attribute[0].t.raw_data)
+      if (len(float_value) == 1):
+         float_value = float_value[0]
+      else:
+         float_value = f"[{', '.join(map(str, float_value))}]"
+      print(f"const {operand_js_name(node.output[0])} = {float_value}");
    else:
-      treminateForUnsupportedNode(node);
+      terminateForUnsupportedNode(node);
 
-def treminateForUnsupportedNode(node):
+def terminateForUnsupportedNode(node):
    print("// Unsupported Node {}!".format(node.op_type), file=sys.stderr)
    print("/*", file=sys.stderr)
    print(node, file=sys.stderr)
    print("*/", file=sys.stderr)
-   print("}", file=sys.stderr)
+   print("}")
    sys.exit()
-   
+
+# Note: Shape is supported as outputting a CPU side operand only.
+def generateShape(node, model_proto):
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = {operand_js_name(node.input[0])}.shape();");
+
+def generateGather(node, model_proto):
+    if node.attribute[0].name != "axis":
+      terminateForUnsupportedNode(node);
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.gather({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {{axis:{node.attribute[0].i}}})");
+
+def generateCast(node, model_proto):
+    if node.attribute[0].i == 7:
+       dest_datatype = "int64";
+    else:
+       terminateForUnsupportedNode(node);
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.cast({operand_js_name(node.input[0])}, \"{dest_datatype}\")");
+
+def generateUnsqueeze(node, model_proto):
+    if node.attribute[0].name != "axes":
+      terminateForUnsupportedNode(node);
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.unsqueeze({operand_js_name(node.input[0])}, {node.attribute[0].ints[0]})");
+
+def generateConcat(node, model_proto):
+    if node.attribute[0].name != "axis":
+      terminateForUnsupportedNode(node);
+    sequence = ", ".join(list(map(operand_js_name, node.input)));
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.concat([{sequence}], {node.attribute[0].i})");
+
+def generateTranspose(node, model_proto):
+    if node.attribute[0].name != "perm":
+      terminateForUnsupportedNode(node);
+    permutation = str(node.attribute[0].ints);
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.transpose({operand_js_name(node.input[0])}, {{ permutation: {permutation} }})");
+
+def generateLeakyRelu(node, model_proto):
+    if node.attribute[0].name != "alpha":
+      terminateForUnsupportedNode(node);
+    permutation = str(node.attribute[0].ints);
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.leakyRelu({operand_js_name(node.input[0])}, {{ alpha: {node.attribute[0].f} }})");
+
 def translate_node_to_webnn(node, model_proto):
    match node.op_type:
     case "Conv":
@@ -143,14 +194,34 @@ def translate_node_to_webnn(node, model_proto):
        generateUnary("sigmoid", node, model_proto);
     case "Mul":
        generateBinary("mul", node, model_proto);
+    case "Div":
+       generateBinary("div", node, model_proto);
     case "Add":
        generateBinary("add", node, model_proto);
     case "DepthToSpace":
        generateDepthToSpace(node, model_proto);
     case "Constant":
        generateConstant(node, model_proto);
+    case "Shape":
+       generateShape(node, model_proto);
+    case "Gather":
+       generateGather(node, model_proto);
+    case "Identity":
+       generateUnary("identity", node, model_proto);
+    case "Cast":
+       generateCast(node, model_proto);
+    case "Unsqueeze":
+       generateUnsqueeze(node, model_proto);
+    case "Concat":
+       generateConcat(node, model_proto);
+    case "Reshape":
+       generateBinary("reshape", node, model_proto);
+    case "Transpose":
+       generateTranspose(node, model_proto);
+    case "LeakyRelu":
+       generateLeakyRelu(node, model_proto); 
     case _:
-       treminateForUnsupportedNode(node);
+       terminateForUnsupportedNode(node);
 
 
 if __name__ == "__main__":

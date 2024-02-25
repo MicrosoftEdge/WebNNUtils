@@ -1,4 +1,5 @@
 import onnx
+import sys
 
 def list_onnx_operators(filename: str) -> None:
    model_proto = onnx.load(filename)
@@ -10,5 +11,5 @@ def list_onnx_operators(filename: str) -> None:
    print(operators);
 
 # Example usage
-onnx_file_path = "D:\\Projects\\TinyLlama-Chat-v1.1-onnx_quantized\\onnx\\decoder_model_merged_quantized.onnx"
+onnx_file_path = sys.argv[1]
 list_onnx_operators(onnx_file_path)
