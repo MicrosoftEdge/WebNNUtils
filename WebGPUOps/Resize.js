@@ -1,9 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
-import { DataType } from '../../../wasm-common';
-import { ShapeUtil } from '../../util';
-import { createAttributeWithCacheKey } from '../attribute-with-cache-key';
-import { createTensorShapeVariables, getElementAt, inputVariable, outputVariable } from './common';
+import { DataType } from './Wasm-Common.js';
+import { ShapeUtil } from './Util.js';
+import { createTensorShapeVariables, getElementAt, inputVariable, outputVariable } from './Common.js';
 
 const validateScales = (scales, attributes) => {
     scales.every((value) => value > 0 || (() => {
@@ -576,39 +575,16 @@ const getOpsetVersionFromCustomDataBuffer = (context) => {
     const opsetVersion = customDataBuffer32[0];
     return opsetVersion;
 };
-export const resize = (context, attributes) => {
-    const scales = [];
+export const resize = (attributes, context, scales) => {
+    // const scales = [];
     const sizes = [];
     const roi = [];
     // Note that scales in resize are always f32. roi can be f32 or f16.
     // TODO: Currently this code does not support f16 for roi when passed as optional input.
-    const opsetVersion = getOpsetVersionFromCustomDataBuffer(context);
-    if (attributes.antialias !== 0) {
-        throw Error('Only default value (0) for Antialias attribute is supported');
-    }
-    validateInputs(context.inputs, attributes, opsetVersion, scales, sizes, roi);
-    context.compute(createResizeProgramInfo(context.inputs[0], attributes, opsetVersion, scales, sizes, roi), { inputs: [0] });
-};
-export const parseResizeAttributes = (attributes) => {
-    const antialias = attributes.antialias;
-    const axes = attributes.axes;
-    const coordinateTransformMode = attributes.coordinateTransformMode;
-    const cubicCoeffA = attributes.cubicCoeffA;
-    const excludeOutside = attributes.excludeOutside !== 0;
-    const extrapolationValue = attributes.extrapolationValue;
-    const keepAspectRatioPolicy = attributes.keepAspectRatioPolicy;
-    const mode = attributes.mode;
-    // If nearestMode is not specified, use simple mode.
-    const nearestMode = (attributes.nearestMode === '' ? 'simple' : attributes.nearestMode);
-    return createAttributeWithCacheKey({
-        antialias,
-        axes,
-        coordinateTransformMode,
-        cubicCoeffA,
-        excludeOutside,
-        extrapolationValue,
-        keepAspectRatioPolicy,
-        mode,
-        nearestMode
-    });
+    // const opsetVersion = getOpsetVersionFromCustomDataBuffer(context);
+    // if (attributes.antialias !== 0) {
+    //     throw Error('Only default value (0) for Antialias attribute is supported');
+    // }
+    // validateInputs(context.inputs, attributes, opsetVersion, scales, sizes, roi);
+    return createResizeProgramInfo(context.inputs[0], attributes, 19, scales, sizes, roi);
 };
