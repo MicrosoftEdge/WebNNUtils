@@ -113,27 +113,38 @@ def generateDepthToSpace(node, model_proto):
 
 def generateConstant(node, model_proto):
    global last_bin_file_pos
-   if node.attribute[0].t.data_type == 7:
-      if (node.attribute[0].t.dims and node.attribute[0].t.dims[0] != 1 and len(node.attribute[0].t.dims) > 1):
-         # We dont support constant integer arrays yet.
-         terminateForUnsupportedNode(node);
-      print(f"const {operand_js_name(node.output[0])} = {int.from_bytes(node.attribute[0].t.raw_data, byteorder='little')}");
-   elif node.attribute[0].t.data_type == 1:
-      dims = 1;
-      if node.attribute[0].t.dims:
-         if (len(node.attribute[0].t.dims) > 1):
-            # We dont support more than 1D array constant.
-            terminateForUnsupportedNode(node);
-         dims = node.attribute[0].t.dims[0];
-      format_string = f'<{dims}f'
-      float_value = struct.unpack(format_string, node.attribute[0].t.raw_data)
-      if (len(float_value) == 1):
-         float_value = float_value[0]
+   if (len(node.attribute[0].t.dims) > 1):
+      shape = f"[{', '.join(map(str, node.attribute[0].t.dims))}]"
+      if node.attribute[0].t.data_type == 7:
+         bytes_written = weights_file.write(node.attribute[0].t.raw_data)
+         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64', dimensions: {shape}}}, new BigInt64Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/8)}))");
+         last_bin_file_pos = last_bin_file_pos + bytes_written
+      elif node.attribute[0].t.data_type == 1:
+         bytes_written = weights_file.write(node.attribute[0].t.raw_data)
+         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64', dimensions: {shape}}}, new Float32Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/4)}))");
+         last_bin_file_pos = last_bin_file_pos + bytes_written
       else:
-         float_value = f"[{', '.join(map(str, float_value))}]"
-      print(f"const {operand_js_name(node.output[0])} = {float_value}");
+         # We dont support more than 1D array constant.
+         terminateForUnsupportedNode(node);
    else:
-      terminateForUnsupportedNode(node);
+      if node.attribute[0].t.data_type == 7:
+         if (node.attribute[0].t.dims and node.attribute[0].t.dims[0] != 1 and len(node.attribute[0].t.dims) > 1):
+            # We dont support constant integer arrays yet.
+            terminateForUnsupportedNode(node);
+         print(f"const {operand_js_name(node.output[0])} = {int.from_bytes(node.attribute[0].t.raw_data, byteorder='little')}");
+      elif node.attribute[0].t.data_type == 1:
+         dims = 1;
+         if node.attribute[0].t.dims:
+            dims = node.attribute[0].t.dims[0];
+         format_string = f'<{dims}f'
+         float_value = struct.unpack(format_string, node.attribute[0].t.raw_data)
+         if (len(float_value) == 1):
+            float_value = float_value[0]
+         else:
+            float_value = f"[{', '.join(map(str, float_value))}]"
+         print(f"const {operand_js_name(node.output[0])} = {float_value}");
+      else:
+         terminateForUnsupportedNode(node);
 
 def terminateForUnsupportedNode(node):
    print("// Unsupported Node {}!".format(node.op_type), file=sys.stderr)
@@ -148,9 +159,14 @@ def generateShape(node, model_proto):
     print(f"{prepend_let(operand_js_name(node.output[0]))} = {operand_js_name(node.input[0])}.shape();");
 
 def generateGather(node, model_proto):
-    if node.attribute[0].name != "axis":
-      terminateForUnsupportedNode(node);
-    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.gather({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {{axis:{node.attribute[0].i}}})");
+    # default value of axis as per onnx is 0.
+    axis = 0;
+    if len(node.attribute) != 0:
+      if node.attribute[0].name != "axis":
+         terminateForUnsupportedNode(node);
+      else:
+         axis = node.attribute[0].i;
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.gather({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {{axis:{axis}}})");
 
 def generateCast(node, model_proto):
     if node.attribute[0].i == 7:
@@ -160,9 +176,15 @@ def generateCast(node, model_proto):
     print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.cast({operand_js_name(node.input[0])}, \"{dest_datatype}\")");
 
 def generateUnsqueeze(node, model_proto):
-    if node.attribute[0].name != "axes":
-      terminateForUnsupportedNode(node);
-    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.unsqueeze({operand_js_name(node.input[0])}, {node.attribute[0].ints[0]})");
+    # No where in the spec does it call out that default for axis is 0.
+    # using that value for now.
+    axis = 0;
+    if len(node.attribute) != 0 :
+      if node.attribute[0].name == "axes" and len(node.attribute[0].ints) == 1:
+         axis = node.attribute[0].ints[0];
+      else:
+         terminateForUnsupportedNode(node);
+    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.unsqueeze({operand_js_name(node.input[0])}, {axis})");
 
 def generateConcat(node, model_proto):
     if node.attribute[0].name != "axis":
