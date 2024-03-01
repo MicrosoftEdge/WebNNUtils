@@ -146,6 +146,10 @@ def generateConstant(node, model_proto):
       else:
          terminateForUnsupportedNode(node);
 
+def generateConstantOfShape(node, model_proto):
+   generateConstant(node, model_proto);
+   print(f"{operand_js_name(node.output[0])} = builder.reshape({operand_js_name(node.output[0])}, {operand_js_name(node.input[0])}.shape())");
+
 def terminateForUnsupportedNode(node):
    print("// Unsupported Node {}!".format(node.op_type), file=sys.stderr)
    print("/*", file=sys.stderr)
@@ -171,6 +175,8 @@ def generateGather(node, model_proto):
 def generateCast(node, model_proto):
     if node.attribute[0].i == 7:
        dest_datatype = "int64";
+    elif node.attribute[0].i == 1:
+       dest_datatype = "float32";
     else:
        terminateForUnsupportedNode(node);
     print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.cast({operand_js_name(node.input[0])}, \"{dest_datatype}\")");
@@ -214,6 +220,39 @@ def generateResize(node, model_proto):
       terminateForUnsupportedNode(node);
    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.resample2d({operand_js_name(node.input[0])}, {{ scales: [{operand_js_name(node.input[2])}[2], {operand_js_name(node.input[2])}[3]] }})");
 
+def generateDequantizeLinear(node, model_proto):
+   if "_scale" not in node.input[1] or "_zero_point" not in node.input[2]:
+      terminateForUnsupportedNode(node);
+   # Proceeding as though the 2nd input is scale and 3rd input is zero point.
+   scale_name = get_weights_and_biases_operand(node.input[1], model_proto);
+   zero_point_name = get_weights_and_biases_operand(node.input[2], model_proto);
+   #y = (x - x_zero_point) * x_scale
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.sub({operand_js_name(node.input[0])}, {zero_point_name})");
+   print(f"{operand_js_name(node.output[0])} = builder.mul({operand_js_name(node.output[0])}, {scale_name})");
+
+def generateReduceMean(node, model_proto):
+   keepDimensions = False;
+   axes_string = "[";
+   has_negative_axes = False;
+   for at in node.attribute:
+      if at.name == "keepdims":
+         keepDimensions = (at.i == 1);
+      elif at.name == "axes":
+         for axis in at.ints:
+            if axis < 0:
+               axes_string += ("rank" + str(axis) + ",");
+               has_negative_axes = True;
+            else:
+               axes_string += (axis + ",");
+   axes_string += "]";
+   if has_negative_axes:
+      print(f"{prepend_let('rank')} = {operand_js_name(node.input[0])}.shape().length;");
+   if keepDimensions:
+      keepDimensionsString = "true";
+   else:
+      keepDimensionsString = "false";
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.reduceMean({operand_js_name(node.input[0])}, {{ keepDimensions: {keepDimensionsString}, axes: {axes_string} }})");
+
 def translate_node_to_webnn(node, model_proto):
    match node.op_type:
     case "Conv":
@@ -254,6 +293,16 @@ def translate_node_to_webnn(node, model_proto):
        generateLeakyRelu(node, model_proto); 
     case "Resize":
        generateResize(node, model_proto);
+    case "DequantizeLinear":
+       generateDequantizeLinear(node, model_proto);
+    case "Pow":
+       generateBinary("pow", node, model_proto);
+    case "Sub":
+       generateBinary("sub", node, model_proto);
+    case "ConstantOfShape":
+       generateConstantOfShape(node, model_proto);
+    case "ReduceMean":
+       generateReduceMean(node, model_proto);
     case _:
        terminateForUnsupportedNode(node);
 

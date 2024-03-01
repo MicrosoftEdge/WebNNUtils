@@ -10,6 +10,15 @@ function InstallCpuOps(builder) {
        }
        throw("GenerateMLOperandFromNumber non float is not yet implemented.");
     }
+    function reshape(original) {
+        return function (...args) {
+            if (typeof args[0] === 'number')
+            {
+                args[0] = GenerateMLOperandFromNumber(args[1]);
+            }
+            return original.apply(this, args);
+        };
+    }
     function mul(original) {
         return function (...args) {
             if (typeof args[0] === 'number' && typeof args[1] === 'number')
