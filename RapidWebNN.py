@@ -79,6 +79,10 @@ def generateBinary(op, node, model_proto):
    print(
        f"const {operand_js_name(node.output[0])} = builder.{op}({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})")
 
+def generateWhere(node, model_proto):
+   print(
+       f"const {operand_js_name(node.output[0])} = builder.where({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {operand_js_name(node.input[2])})")
+
 def generateGobalAveragePool(node, model_proto):
    print(
        f"{prepend_let('average_pool_window')} = {operand_js_name(node.input[0])}.shape().slice(-2);")
@@ -131,7 +135,7 @@ def generateConstant(node, model_proto):
          if (node.attribute[0].t.dims and node.attribute[0].t.dims[0] != 1 and len(node.attribute[0].t.dims) > 1):
             # We dont support constant integer arrays yet.
             terminateForUnsupportedNode(node);
-         print(f"const {operand_js_name(node.output[0])} = {int.from_bytes(node.attribute[0].t.raw_data, byteorder='little')}");
+         print(f"const {operand_js_name(node.output[0])} = {int.from_bytes(node.attribute[0].t.raw_data, byteorder='little', signed=True)}");
       elif node.attribute[0].t.data_type == 1:
          dims = 1;
          if node.attribute[0].t.dims:
@@ -177,6 +181,9 @@ def generateCast(node, model_proto):
        dest_datatype = "int64";
     elif node.attribute[0].i == 1:
        dest_datatype = "float32";
+    elif node.attribute[0].i == 9:
+       # 9 is supposed to be bool but there is no way to represent that in webnn
+       dest_datatype = "uint8";
     else:
        terminateForUnsupportedNode(node);
     print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.cast({operand_js_name(node.input[0])}, \"{dest_datatype}\")");
@@ -253,6 +260,47 @@ def generateReduceMean(node, model_proto):
       keepDimensionsString = "false";
    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.reduceMean({operand_js_name(node.input[0])}, {{ keepDimensions: {keepDimensionsString}, axes: {axes_string} }})");
 
+# Not a real implementation of slice, just passing through values
+# so that slice can be implemented in JS for the limited use case
+# of slicing constants.
+def generateSWSlice(node, model_proto):
+   if len(node.input) == 5:
+      print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.slice({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {operand_js_name(node.input[2])}, {operand_js_name(node.input[3])}, {operand_js_name(node.input[4])})");
+   elif len(node.input) == 4:
+      print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.slice({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {operand_js_name(node.input[2])}, {operand_js_name(node.input[3])})");
+   elif len(node.input) == 3:
+      print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.slice({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {operand_js_name(node.input[2])})");
+   else:
+      terminateForUnsupportedNode(node);
+
+# Limited implementation of squeeze that is actually implemented on the JS side.
+def generateSWSqueeze(node, model_proto):
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.squeeze({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})");
+
+# Limited implementation of range that is actually implemented on the JS side.
+def generateSWRange(node, model_proto):
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.range({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {operand_js_name(node.input[2])})");
+
+def generateExpand(node, model_proto):
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.expand({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})");
+
+def generateDynamicQuantizeLinear(node, model_proto):
+   print(f"{prepend_let('max_dql')} = builder.max({operand_js_name(node.input[0])})");
+   print(f"{prepend_let('min_dql')} = builder.min({operand_js_name(node.input[0])})");
+   # y_scale = (max(x) - min(x))/(qmax - qmin)
+   print(f"{prepend_let(operand_js_name(node.output[1]))} = builder.div(builder.sub(max_dql, min_dql), builder.constant_dql_255)");
+   # intermediate_zero_point = qmin - min(x)/y_scale
+   # y_zero_point = cast(round(saturate(itermediate_zero_point)))
+   print(f"{prepend_let('izp_dql')} = builder.div(builder.sub(builder.constant_dql_255, min_dql), {operand_js_name(node.output[1])})");
+   print(f"izp_dql = builder.clamp(izp_dql, {{minValue:0, maxValue:255}})");
+   print(f"{prepend_let(operand_js_name(node.output[2]))} = builder.cast(izp_dql, \"uint8\")");
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = 0");
+
+def generateMatMulInteger(node, model_proto):
+   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[0]))} = builder.sub({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})");
+   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[2]))} = builder.sub({operand_js_name(node.input[2])}, {operand_js_name(node.input[3])})");
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.mul({'intermediate_'+operand_js_name(node.input[0])}, {'intermediate_'+operand_js_name(node.input[2])})");
+   
 def translate_node_to_webnn(node, model_proto):
    match node.op_type:
     case "Conv":
@@ -263,6 +311,10 @@ def translate_node_to_webnn(node, model_proto):
        generateGobalAveragePool(node, model_proto);
     case "Sigmoid":
        generateUnary("sigmoid", node, model_proto);
+    case "Neg":
+       generateUnary("neg", node, model_proto);
+    case "Softmax":
+       generateUnary("softmax", node, model_proto);
     case "Mul":
        generateBinary("mul", node, model_proto);
     case "Div":
@@ -303,9 +355,45 @@ def translate_node_to_webnn(node, model_proto):
        generateConstantOfShape(node, model_proto);
     case "ReduceMean":
        generateReduceMean(node, model_proto);
+    case "Slice":
+       generateSWSlice(node, model_proto);
+    case "Squeeze":
+       generateSWSqueeze(node, model_proto);
+    case "Sqrt":
+       generateUnary("sqrt", node, model_proto);
+    case "Equal":
+       generateBinary("equal", node, model_proto);
+    case "Range":
+       generateSWRange(node, model_proto);
+    case "Where":
+       generateWhere(node, model_proto);
+    case "Expand":
+       generateExpand(node, model_proto);
+    case "DynamicQuantizeLinear":
+       generateDynamicQuantizeLinear(node, model_proto);
+    case "Less":
+       generateBinary("lesser", node, model_proto);
+    case "MatMulInteger":
+       generateMatMulInteger(node, model_proto);
     case _:
        terminateForUnsupportedNode(node);
 
+def generateFunctionSignature(model_proto):
+   print("function loadModelGraph(",  end ="");
+   for inp in model_proto.graph.input:
+      print(operand_js_name(inp.name) + ",");
+   print("weights_buffer, builder) {");
+
+def generateFunctionReturn(model_proto):
+   print("return ",  end ="");
+   if len(model_proto.graph.output) == 1:
+      print(operand_js_name(model_proto.graph.output[0]));
+   else:
+      print("[",  end ="");
+      for out in model_proto.graph.output:
+         print(operand_js_name(out.name) + ",");
+      print("]",  end ="");
+   print(";");
 
 if __name__ == "__main__":
    parser = argparse.ArgumentParser()
@@ -324,8 +412,7 @@ if __name__ == "__main__":
    output_file = open(args.output_file, "w")
    sys.stdout = output_file
 
-   print("function loadModelGraph(operand_input, weights_buffer, builder) {")
-
+   generateFunctionSignature(model_proto);
    # Traverse each node in the graph
    last_node = None
    for node in model_proto.graph.node:
@@ -334,8 +421,7 @@ if __name__ == "__main__":
       translate_node_to_webnn(node, model_proto)
       last_node = node
 
-   if last_node is not None:
-      print(f"return {operand_js_name(last_node.output[0])};")
+   generateFunctionReturn(model_proto);
 
    print("}")
 
