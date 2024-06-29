@@ -4,7 +4,7 @@ import sys
 file_path = '.\RapidChat\models\model_reordered.js'
 cpu_operands = [];
 cpu_operators_found = set();
-# operators whose seconds parameter needs to be on CPU
+# operators whose second parameter need to be on CPU
 cpu_operators_2nd_parameter = ['expand', 'generateConstantOfShape'];
 
 def contains_word(line, word_list):
