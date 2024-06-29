@@ -5,7 +5,7 @@ RapidWebNN a WebNN compiler for producing pure JS models from .onnx models.
 ## Philosophy
 While JS ML frameworks can evalute models in the browser, they involve shipping a framework and expensive load time preprocessing that impacts latency. During preprocessing frameworks determine the input shapes for operators, partition operators to those that need to run on CPU and optimize the model graph.
 
-With WebNN there is no such overhead. At compile time RapidWebNN takes a static .onnx file and emits JS code that will build an 
+With RapidWebNN there is no such overhead. At compile time RapidWebNN takes a static .onnx file and emits JS code that will build an 
 equivalent WebNN graph. The resulting JS code can be used in the browser. In other words RapidWebNN code gens a JS WebNN graph building
 function with the following signature based on a .onnx file.
 
