@@ -39,6 +39,6 @@ def reorder_lines(file_path):
                 unready_lines.add(line);
 
 
-file_path = '.\EsrGan\model.js'  # Replace with the actual file path
+file_path = '.\RapidChat\models\model.js'  # Replace with the actual file path
 reorder_lines(file_path)
 assert(len(unready_lines) == 0);

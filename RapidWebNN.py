@@ -13,7 +13,7 @@ def operand_js_name(name):
 
 # Sanitize the name to be a valid JavaScript variable name
 def js_name(name):
-   return name.replace(".", "_").replace("::", "_").replace("/", "_");
+   return name.replace(".", "_").replace(":", "_").replace("/", "_");
 
 used_variable_names = set()
 # Adds the keyword let, if the name has not been used before.
@@ -26,22 +26,66 @@ def prepend_let(name):
 
 weights_file = None
 last_bin_file_pos = 0;
-def get_weights_and_biases_operand(name, model_proto):
+
+def handleWeightsAlignment(alignment):
+   global last_bin_file_pos
+   reminder = last_bin_file_pos%alignment;
+   if (reminder !=0):
+         # JS float32 arrays can be loaded only from aligned locations.
+         # Fill in 0s to achieve alignment.
+         weights_file.write(bytearray(alignment-reminder))
+         last_bin_file_pos+=(alignment-reminder);
+
+def generateInitializers(model_proto):
   global last_bin_file_pos
   for ten_proto in model_proto.graph.initializer:
-      if ten_proto.name == name:
-          weights = onnx.numpy_helper.to_array(ten_proto)
-          weights = weights.ravel()
-          weights_bytes = weights.tobytes()
-          weights_file.write(weights_bytes)
-          binary_size = len(weights_bytes)
-          print(f"{prepend_let('operand_value')} = new Float32Array(weights_buffer, {last_bin_file_pos}, {int(binary_size/4)});")
-          last_bin_file_pos = last_bin_file_pos + binary_size
-          operandDesc = f"{prepend_let('operand_desc')} = {{type: 'float32', dataType: 'float32', dimensions: {str(ten_proto.dims)}}};"
-          print(operandDesc)
-          declaration = f"const {operand_js_name(ten_proto.name)} = builder.constant(operand_desc, operand_value);"
-          print(declaration)
-  return operand_js_name(name)
+      weights = onnx.numpy_helper.to_array(ten_proto)
+      weights = weights.ravel()
+      weights_bytes = weights.tobytes()
+      binary_size = len(weights_bytes)
+
+      dest_datatype = "";
+      array_type = "";
+      size = 0;
+      alignment = 1;
+      if ten_proto.data_type == 7:
+         dest_datatype = "int64";
+         array_type = "BigInt64Array"
+         size = int(binary_size/8);
+         alignment = 4;
+      elif ten_proto.data_type == 1:
+         dest_datatype = "float32";
+         array_type = "Float32Array"
+         size = int(binary_size/4)
+         alignment = 4;
+      elif ten_proto.data_type == 9:
+         # 9 is supposed to be bool but there is no way to represent that in webnn
+         dest_datatype = "uint8";
+         array_type = "Uint8Array"
+         size = int(binary_size)
+      elif ten_proto.data_type == 2:
+         dest_datatype = "uint8";
+         array_type = "Uint8Array"
+         size = int(binary_size)
+      elif ten_proto.data_type == 3:
+         dest_datatype = "int8";
+         array_type = "Int8Array"
+         size = int(binary_size)
+      else:
+         print("Unsupported Initializer !!",file=sys.stderr)
+         print(ten_proto, file=sys.stderr);
+         sys.exit();
+      handleWeightsAlignment(alignment);
+      # Write to the weights file.
+      weights_file.write(weights_bytes)
+
+      print(f"{prepend_let('operand_value')} = new {array_type}(weights_buffer, {last_bin_file_pos}, {size});")
+      last_bin_file_pos = last_bin_file_pos + binary_size
+      operandDesc = f"{prepend_let('operand_desc')} = {{type: '{dest_datatype}', dataType: '{dest_datatype}', dimensions: {str(ten_proto.dims)}}};"
+      print(operandDesc)
+      declaration = f"const {operand_js_name(ten_proto.name)} = builder.constant(operand_desc, operand_value);"
+      print(declaration)
+
 
 def generateConv2D(node, model_proto):
    print(f"{prepend_let('conv2d_options')} = {{}};")
@@ -49,11 +93,9 @@ def generateConv2D(node, model_proto):
    layer_filter_name = ""
    for input_name in node.input:
       if ".weight" in input_name:
-         layer_filter_name = get_weights_and_biases_operand(
-             input_name, model_proto)
+         layer_filter_name = operand_js_name(input_name);
       elif ".bias" in input_name:
-         print(
-             f"conv2d_options.bias = {get_weights_and_biases_operand(input_name, model_proto)}")
+         print(f"conv2d_options.bias = {operand_js_name(input_name)}")
       else:
          layer_input_name = operand_js_name(input_name)
 
@@ -120,12 +162,14 @@ def generateConstant(node, model_proto):
    if (len(node.attribute[0].t.dims) > 1):
       shape = f"[{', '.join(map(str, node.attribute[0].t.dims))}]"
       if node.attribute[0].t.data_type == 7:
+         handleWeightsAlignment(4);
          bytes_written = weights_file.write(node.attribute[0].t.raw_data)
          print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64', dimensions: {shape}}}, new BigInt64Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/8)}))");
          last_bin_file_pos = last_bin_file_pos + bytes_written
       elif node.attribute[0].t.data_type == 1:
+         handleWeightsAlignment(4);
          bytes_written = weights_file.write(node.attribute[0].t.raw_data)
-         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64', dimensions: {shape}}}, new Float32Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/4)}))");
+         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'float32', dimensions: {shape}}}, new Float32Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/4)}))");
          last_bin_file_pos = last_bin_file_pos + bytes_written
       else:
          # We dont support more than 1D array constant.
@@ -135,7 +179,7 @@ def generateConstant(node, model_proto):
          if (node.attribute[0].t.dims and node.attribute[0].t.dims[0] != 1 and len(node.attribute[0].t.dims) > 1):
             # We dont support constant integer arrays yet.
             terminateForUnsupportedNode(node);
-         print(f"const {operand_js_name(node.output[0])} = {int.from_bytes(node.attribute[0].t.raw_data, byteorder='little', signed=True)}");
+         print(f"let {operand_js_name(node.output[0])} = {int.from_bytes(node.attribute[0].t.raw_data, byteorder='little', signed=True)}");
       elif node.attribute[0].t.data_type == 1:
          dims = 1;
          if node.attribute[0].t.dims:
@@ -146,13 +190,20 @@ def generateConstant(node, model_proto):
             float_value = float_value[0]
          else:
             float_value = f"[{', '.join(map(str, float_value))}]"
-         print(f"const {operand_js_name(node.output[0])} = {float_value}");
+         print(f"let {operand_js_name(node.output[0])} = {float_value}");
       else:
          terminateForUnsupportedNode(node);
 
 def generateConstantOfShape(node, model_proto):
+   type = '';
+   if node.attribute[0].t.data_type == 7:
+      type = 'int64';
+   elif node.attribute[0].t.data_type == 1:
+      type = 'float32'
+   else :
+      terminateForUnsupportedNode(node);
    generateConstant(node, model_proto);
-   print(f"{operand_js_name(node.output[0])} = builder.reshape({operand_js_name(node.output[0])}, {operand_js_name(node.input[0])}.shape())");
+   print(f"{operand_js_name(node.output[0])} = builder.generateConstantOfShape('{type}', {operand_js_name(node.output[0])}, {operand_js_name(node.input[0])})");
 
 def terminateForUnsupportedNode(node):
    print("// Unsupported Node {}!".format(node.op_type), file=sys.stderr)
@@ -190,13 +241,18 @@ def generateCast(node, model_proto):
 
 def generateUnsqueeze(node, model_proto):
     # No where in the spec does it call out that default for axis is 0.
-    # using that value for now.
+    # using that value for now.  
     axis = 0;
     if len(node.attribute) != 0 :
       if node.attribute[0].name == "axes" and len(node.attribute[0].ints) == 1:
          axis = node.attribute[0].ints[0];
       else:
          terminateForUnsupportedNode(node);
+    else:
+      if len(node.input) > 1:
+         # When there are two inputs the convention seems to be to treat the
+         # second one as axis.
+         axis = operand_js_name(node.input[1])
     print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.unsqueeze({operand_js_name(node.input[0])}, {axis})");
 
 def generateConcat(node, model_proto):
@@ -231,11 +287,11 @@ def generateDequantizeLinear(node, model_proto):
    if "_scale" not in node.input[1] or "_zero_point" not in node.input[2]:
       terminateForUnsupportedNode(node);
    # Proceeding as though the 2nd input is scale and 3rd input is zero point.
-   scale_name = get_weights_and_biases_operand(node.input[1], model_proto);
-   zero_point_name = get_weights_and_biases_operand(node.input[2], model_proto);
+   scale_name = operand_js_name(node.input[1]);
+   zero_point_name = operand_js_name(node.input[2]);
    #y = (x - x_zero_point) * x_scale
    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.sub({operand_js_name(node.input[0])}, {zero_point_name})");
-   print(f"{operand_js_name(node.output[0])} = builder.mul({operand_js_name(node.output[0])}, {scale_name})");
+   print(f"{operand_js_name(node.output[0])} = builder.mul(builder.cast({operand_js_name(node.output[0])}, 'float32'), {scale_name})");
 
 def generateReduceMean(node, model_proto):
    keepDimensions = False;
@@ -285,21 +341,23 @@ def generateExpand(node, model_proto):
    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.expand({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})");
 
 def generateDynamicQuantizeLinear(node, model_proto):
-   print(f"{prepend_let('max_dql')} = builder.max({operand_js_name(node.input[0])})");
-   print(f"{prepend_let('min_dql')} = builder.min({operand_js_name(node.input[0])})");
+   print(f"{prepend_let('max_dql')} = builder.reduceMax({operand_js_name(node.input[0])})");
+   print(f"{prepend_let('min_dql')} = builder.reduceMin({operand_js_name(node.input[0])})");
    # y_scale = (max(x) - min(x))/(qmax - qmin)
    print(f"{prepend_let(operand_js_name(node.output[1]))} = builder.div(builder.sub(max_dql, min_dql), builder.constant_dql_255)");
    # intermediate_zero_point = qmin - min(x)/y_scale
    # y_zero_point = cast(round(saturate(itermediate_zero_point)))
    print(f"{prepend_let('izp_dql')} = builder.div(builder.sub(builder.constant_dql_255, min_dql), {operand_js_name(node.output[1])})");
    print(f"izp_dql = builder.clamp(izp_dql, {{minValue:0, maxValue:255}})");
+   # Implement round by adding 0.5 before the cast.
+   print(f"izp_dql = builder.add(izp_dql, builder.constant_dql_pt5)");
    print(f"{prepend_let(operand_js_name(node.output[2]))} = builder.cast(izp_dql, \"uint8\")");
-   print(f"{prepend_let(operand_js_name(node.output[0]))} = 0");
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.QuantizeLinear({operand_js_name(node.input[0])}, {operand_js_name(node.output[1])}, izp_dql);");
 
 def generateMatMulInteger(node, model_proto):
-   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[0]))} = builder.sub({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})");
-   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[2]))} = builder.sub({operand_js_name(node.input[2])}, {operand_js_name(node.input[3])})");
-   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.mul({'intermediate_'+operand_js_name(node.input[0])}, {'intermediate_'+operand_js_name(node.input[2])})");
+   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[0]))} = builder.sub(builder.cast({operand_js_name(node.input[0])}, 'int32'), builder.cast({operand_js_name(node.input[2])}, 'int32'))");
+   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[2]))} = builder.sub(builder.cast({operand_js_name(node.input[1])}, 'int32'), builder.cast({operand_js_name(node.input[3])}, 'int32'))");
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.matmul({'intermediate_'+operand_js_name(node.input[0])}, {'intermediate_'+operand_js_name(node.input[2])})");
    
 def translate_node_to_webnn(node, model_proto):
    match node.op_type:
@@ -389,10 +447,10 @@ def generateFunctionReturn(model_proto):
    if len(model_proto.graph.output) == 1:
       print(operand_js_name(model_proto.graph.output[0]));
    else:
-      print("[",  end ="");
+      print("{",  end ="");
       for out in model_proto.graph.output:
-         print(operand_js_name(out.name) + ",");
-      print("]",  end ="");
+         print("\""+out.name+"\":" + operand_js_name(out.name) + ",");
+      print("}",  end ="");
    print(";");
 
 if __name__ == "__main__":
@@ -413,6 +471,8 @@ if __name__ == "__main__":
    sys.stdout = output_file
 
    generateFunctionSignature(model_proto);
+   generateInitializers(model_proto);
+
    # Traverse each node in the graph
    last_node = None
    for node in model_proto.graph.node:
