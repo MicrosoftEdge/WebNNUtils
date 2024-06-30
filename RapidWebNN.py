@@ -6,6 +6,7 @@ import numpy as np
 import sys
 import argparse
 import struct
+import os
 
 # Prepends operand to the name to avoid conflicts with other variables.
 def operand_js_name(name):
@@ -23,9 +24,22 @@ def prepend_let(name):
    else:
       used_variable_names.add(name)
       return "let " + name;
-
-weights_file = None
 last_bin_file_pos = 0;
+weights_files = []
+current_weights_file = None
+current_weights_file_size = 0
+current_weights_file_index = 0
+
+def open_new_weights_file():
+   global current_weights_file, current_weights_file_size, current_weights_file_index, last_bin_file_pos
+   if current_weights_file:
+      current_weights_file_index += 1
+      current_weights_file.close()
+   new_weights_file = f"{weights_file_base}{current_weights_file_index}{weights_file_ext}"
+   current_weights_file = open(new_weights_file, "wb")
+   current_weights_file_size = 0
+   last_bin_file_pos=0
+   weights_files.append(new_weights_file)
 
 def handleWeightsAlignment(alignment):
    global last_bin_file_pos
@@ -33,16 +47,19 @@ def handleWeightsAlignment(alignment):
    if (reminder !=0):
          # JS float32 arrays can be loaded only from aligned locations.
          # Fill in 0s to achieve alignment.
-         weights_file.write(bytearray(alignment-reminder))
+         current_weights_file.write(bytearray(alignment-reminder))
          last_bin_file_pos+=(alignment-reminder);
 
 def generateInitializers(model_proto):
-  global last_bin_file_pos
-  for ten_proto in model_proto.graph.initializer:
+   global current_weights_file_size, last_bin_file_pos
+   for ten_proto in model_proto.graph.initializer:
       weights = onnx.numpy_helper.to_array(ten_proto)
       weights = weights.ravel()
       weights_bytes = weights.tobytes()
       binary_size = len(weights_bytes)
+
+      if current_weights_file_size + binary_size > args.max_weights_size*1024*1024:
+         open_new_weights_file()
 
       dest_datatype = "";
       array_type = "";
@@ -52,7 +69,7 @@ def generateInitializers(model_proto):
          dest_datatype = "int64";
          array_type = "BigInt64Array"
          size = int(binary_size/8);
-         alignment = 4;
+         alignment = 8;
       elif ten_proto.data_type == 10:
          dest_datatype = "float16";
          array_type = "Uint16Array"
@@ -81,10 +98,10 @@ def generateInitializers(model_proto):
          print(ten_proto, file=sys.stderr);
          sys.exit();
       handleWeightsAlignment(alignment);
-      # Write to the weights file.
-      weights_file.write(weights_bytes)
+      current_weights_file.write(weights_bytes)
+      current_weights_file_size += binary_size
 
-      print(f"{prepend_let('operand_value')} = new {array_type}(weights_buffer, {last_bin_file_pos}, {size});")
+      print(f"{prepend_let('operand_value')} = new {array_type}(weights_buffers[{current_weights_file_index}], {last_bin_file_pos}, {size});")
       last_bin_file_pos = last_bin_file_pos + binary_size
       operandDesc = f"{prepend_let('operand_desc')} = {{type: '{dest_datatype}', dataType: '{dest_datatype}', dimensions: {str(ten_proto.dims)}}};"
       print(operandDesc)
@@ -183,12 +200,12 @@ def generateConstant(node, model_proto):
       if node.attribute[0].t.data_type == 7:
          handleWeightsAlignment(4);
          bytes_written = weights_file.write(node.attribute[0].t.raw_data)
-         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64', dimensions: {shape}}}, new BigInt64Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/8)}))");
+         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'int64', dimensions: {shape}}}, new BigInt64Array(weights_buffers[{current_weights_file_index}], {last_bin_file_pos}, {int(bytes_written/8)}))");
          last_bin_file_pos = last_bin_file_pos + bytes_written
       elif node.attribute[0].t.data_type == 1:
          handleWeightsAlignment(4);
          bytes_written = weights_file.write(node.attribute[0].t.raw_data)
-         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'float32', dimensions: {shape}}}, new Float32Array(weights_buffer, {last_bin_file_pos}, {int(bytes_written/4)}))");
+         print(f"{operand_js_name(node.output[0])} = builder.constant({{dataType: 'float32', dimensions: {shape}}}, new Float32Array(weights_buffers[{current_weights_file_index}], {last_bin_file_pos}, {int(bytes_written/4)}))");
          last_bin_file_pos = last_bin_file_pos + bytes_written
       else:
          # We dont support more than 1D array constant.
@@ -482,7 +499,7 @@ def generateFunctionSignature(model_proto):
    print("function loadModelGraph(",  end ="");
    for inp in model_proto.graph.input:
       print(operand_js_name(inp.name) + ",");
-   print("weights_buffer, builder) {");
+   print("weights_buffers, builder) {");
 
 def generateFunctionReturn(model_proto):
    print("return ",  end ="");
@@ -502,9 +519,13 @@ if __name__ == "__main__":
                   help="Path to the output weights file")
    parser.add_argument("--output_file", default="model.js",
                   help="Path to the output JavaScript file")
+   parser.add_argument("--max_weights_size", type=int, default=1024,
+               help="Maximum size of a single weights file in MB")
    args = parser.parse_args()
 
-   weights_file = open(args.weights_file, "wb")
+   weights_file_base, weights_file_ext = os.path.splitext(args.weights_file)
+   open_new_weights_file()
+
    model_file = args.model_file
    model_proto = onnx.load(model_file)
    operators = set()
@@ -512,7 +533,7 @@ if __name__ == "__main__":
    output_file = open(args.output_file, "w")
    sys.stdout = output_file
 
-   generateFunctionSignature(model_proto);
+   generateFunctionSignature(model_proto)
    generateInitializers(model_proto);
 
    # Traverse each node in the graph
@@ -526,6 +547,5 @@ if __name__ == "__main__":
    generateFunctionReturn(model_proto);
 
    print("}")
-
-   weights_file.close()
+   current_weights_file.close()
    output_file.close()

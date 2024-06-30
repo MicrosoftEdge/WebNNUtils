@@ -26,12 +26,15 @@ function InstallCpuOps(builder) {
        throw("GenerateMLOperandFromNumber non float is not yet implemented.");
     }
     function GenerateMLOperandFromArray(val, type = 'int32') {
-        if (Number.isInteger(val[0]))
+        if (Number.isInteger(val[0]) || typeof val[0] == 'bigint')
         {
              // Integer case
              let array_buffer_view;
              switch(type)
              {
+                case 'int64':
+                    array_buffer_view = new BigInt64Array(val);
+                    break;
                 case 'int32':
                     array_buffer_view = new Int32Array(val);
                     break;
@@ -45,6 +48,23 @@ function InstallCpuOps(builder) {
              return builder.constant({type: type, dataType: type, dimensions: [val.length]}, array_buffer_view);
         }
         throw("GenerateMLOperandFromArray is not yet implemented.");
+    }
+    function ToNumber(arg)
+    {
+        if (typeof arg == 'bigint')
+        {
+            return Number(arg);
+        }
+        if (Array.isArray(arg))
+        {
+            let array = [];
+            for (const i of arg)
+            {
+                array.push(ToNumber(i));
+            }
+            return array;
+        }
+        return arg;
     }
     function mul(original) {
         return function (...args) {
@@ -179,14 +199,28 @@ function InstallCpuOps(builder) {
     function range(original) {
         return function (...args) {
             let array = [];
-            // Inputs are start, limit, delta
-            while(true) {
-                let number = args[0] + (array.length * args[2]);
-                if (number >= args[1])
-                    break;
-                array.push(number);
+            if (typeof args[0] == 'bigint')
+            {
+                   // Inputs are start, limit, delta
+                while(true) {
+                    let number = ToNumber(args[0]) + (array.length * ToNumber(args[2]));
+                    if (number >= args[1])
+                        break;
+                    array.push(BigInt(number));
+                }
+                return GenerateMLOperandFromArray(array, 'int64');
             }
-            return GenerateMLOperandFromArray(array);
+            else
+            {
+                // Inputs are start, limit, delta
+                while(true) {
+                    let number = ToNumber(args[0]) + (array.length * ToNumber(args[2]));
+                    if (number >= args[1])
+                        break;
+                    array.push(number);
+                }
+                return GenerateMLOperandFromArray(array);
+            }
         };
     }
     function cast(original) {
@@ -230,7 +264,7 @@ function InstallCpuOps(builder) {
             else if (args[0] instanceof MLOperand)
             {
                 let new_shape = args[0].shape();
-                new_shape.splice(args[1], 0, 1);
+                new_shape.splice(ToNumber(args[1]), 0, 1);
                 return this.reshape(args[0], new_shape);
             }
             throw("CPU OP Unsqueeze is not fully implemented.");
@@ -257,6 +291,7 @@ function InstallCpuOps(builder) {
     }
     function slice(original) {
         return function (...args) {
+            args = ToNumber(args);
             // value, start, end, axis
             if (Array.isArray(args[0]) && args[1] == -1 && (args.length == 3 || args[3] == 0) && args[2] > args[0].length)
             {
@@ -369,6 +404,9 @@ function InstallCpuOps(builder) {
            case 'float32':
                array_buffer_view = new Float32Array(size);
                break;
+           case 'float16':
+               array_buffer_view = new Uint16Array(size);
+               break;
         }
         array_buffer_view.fill(value);
         return builder.constant({type: type, dataType: type, dimensions: shape}, array_buffer_view);
@@ -392,9 +430,13 @@ function InstallCpuOps(builder) {
             throw("CPU OP concat is not fully implemented.");
         }
         let result=[];
-        for (const input of sequence) 
+        for (let input of sequence) 
         {
-            if (!Array.isArray(input) && !Number.isFinite(input))
+            if (Number.isFinite(ToNumber(input)))
+            {
+                input = [ToNumber(input)];
+            }
+            if (!Array.isArray(input))
             {
                 throw("CPU OP concat is not fully implemented.");
             }
@@ -404,6 +446,7 @@ function InstallCpuOps(builder) {
     }
     function cpu_gather(...args)
     {
+        args[1] = ToNumber(args[1]);
         if (typeof args[1] === 'number' && args[2].axis === 0)
         {
             // Super simple case, where indices must just index
@@ -412,8 +455,18 @@ function InstallCpuOps(builder) {
         }
         throw("CPU OP gather is not fully implemented.");
     }
+    function cpu_constant(...args)
+    {
+        if (args[1] instanceof BigInt64Array && args[1].length == 1)
+        {
+            // Return as original data type so that type information is preserved.
+            return args[1][0];
+        }
+        throw("CPU OP constant is not fully implemented.");
+    }
     function cpu_add(...args)
     {
+        args=ToNumber(args);
         if (typeof args[0] === 'number' && typeof args[1] === 'number')
         {
             return args[0] + args[1];
@@ -422,6 +475,7 @@ function InstallCpuOps(builder) {
     }
     function cpu_sub(...args)
     {
+        args=ToNumber(args);
         if (typeof args[0] === 'number' && typeof args[1] === 'number')
         {
             return args[0] - args[1];
@@ -435,6 +489,31 @@ function InstallCpuOps(builder) {
             return [args[0]];
         }
         throw("CPU OP unsqueeze is not fully implemented.");
+    }
+    function cpu_squeeze(...args){
+        if (Array.isArray(args[0]) && args[1] == 0)
+        {
+            if (args[0].length == 1) {
+                return args[0][0];
+            } else {
+                // The dimension is non zero return the array as is. 
+                return args[0];
+            }
+        }
+        throw("CPU OP squeeze is not fully implemented.");
+    }
+    function cpu_slice(...args)
+    {
+        // value, start, end, axis
+        if (Array.isArray(args[0]) && args[1] == -1 && (args.length == 3 || args[3] == 0) && args[2] > args[0].length)
+        {
+            // Super simple case, where indices must just index
+            // into input.
+            let length = args[0].length;
+            let value = args[0][length-1];
+            return [value];
+        }
+        throw("CPU OP slice is not fully implemented.");
     }
     function cpu_equal(...args)
     {
@@ -471,7 +550,11 @@ function InstallCpuOps(builder) {
     }
     function cpu_mul(...args)
     {
+        args=ToNumber(args);
         output = [];
+        if (typeof args[0] == 'number' && typeof args[1] == 'number') {
+            return args[0]*args[1];
+        }
         if (typeof args[1] == 'number') {
             args[1] = [args[1]];
         }
@@ -480,6 +563,24 @@ function InstallCpuOps(builder) {
             let lhs = i < args[0].length ? args[0][i] : args[0][args[0].length - 1];
             let rhs = i < args[1].length ? args[1][i] : args[1][args[1].length - 1];
             output.push(lhs * rhs);
+        }
+        return output;
+    }
+    function cpu_div(...args)
+    {
+        args=ToNumber(args);
+        output = [];
+        if (typeof args[0] == 'number' && typeof args[1] == 'number') {
+            return args[0]/args[1];
+        }
+        if (typeof args[1] == 'number') {
+            args[1] = [args[1]];
+        }
+        for (let i=0; i < args[0].length || i < args[1].length; i++)
+        {
+            let lhs = i < args[0].length ? args[0][i] : args[0][args[0].length - 1];
+            let rhs = i < args[1].length ? args[1][i] : args[1][args[1].length - 1];
+            output.push(lhs / rhs);
         }
         return output;
     }
@@ -504,13 +605,17 @@ function InstallCpuOps(builder) {
     builder.generateConstantOfShape = generateConstantOfShape;
 
     builder.cpu_gather = cpu_gather;
+    builder.cpu_constant = cpu_constant;
     builder.cpu_add = cpu_add;
     builder.cpu_sub = cpu_sub;
     builder.cpu_unsqueeze = cpu_unsqueeze;
+    builder.cpu_squeeze = cpu_squeeze;
     builder.cpu_equal = cpu_equal;
     builder.cpu_reshape = cpu_reshape;
+    builder.cpu_slice = cpu_slice;
     builder.cpu_where = cpu_where;
     builder.cpu_mul = cpu_mul;
+    builder.cpu_div = cpu_div;
     builder.cpu_concat = cpu_concat;
     builder.cpu_generateConstantOfShape = cpu_generateConstantOfShape;
 
