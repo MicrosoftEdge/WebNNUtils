@@ -53,6 +53,11 @@ def generateInitializers(model_proto):
          array_type = "BigInt64Array"
          size = int(binary_size/8);
          alignment = 4;
+      elif ten_proto.data_type == 10:
+         dest_datatype = "float16";
+         array_type = "Uint16Array"
+         size = int(binary_size/2)
+         alignment = 4;
       elif ten_proto.data_type == 1:
          dest_datatype = "float32";
          array_type = "Float32Array"
@@ -125,6 +130,20 @@ def generateWhere(node, model_proto):
    print(
        f"const {operand_js_name(node.output[0])} = builder.where({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])}, {operand_js_name(node.input[2])})")
 
+def generateSoftmax(node, model_proto):
+   axis = 0;
+   if len(node.attribute) != 0:
+      if node.attribute[0].name != "axis":
+         terminateForUnsupportedNode(node);
+      else:
+         axis = node.attribute[0].i;
+   if axis < 0:
+      print(
+         f"const {operand_js_name(node.output[0])} = builder.softmax({operand_js_name(node.input[0])},  {operand_js_name(node.input[0])}.shape().length {axis})")
+   else:
+      print(
+         f"const {operand_js_name(node.output[0])} = builder.softmax({operand_js_name(node.input[0])}, {axis})")
+
 def generateGobalAveragePool(node, model_proto):
    print(
        f"{prepend_let('average_pool_window')} = {operand_js_name(node.input[0])}.shape().slice(-2);")
@@ -191,6 +210,17 @@ def generateConstant(node, model_proto):
          else:
             float_value = f"[{', '.join(map(str, float_value))}]"
          print(f"let {operand_js_name(node.output[0])} = {float_value}");
+      elif node.attribute[0].t.data_type == 10:
+         dims = 1;
+         if node.attribute[0].t.dims:
+            dims = node.attribute[0].t.dims[0];
+         format_string = f'<{dims}h'
+         float_value = struct.unpack(format_string, node.attribute[0].t.raw_data)
+         if (len(float_value) == 1):
+            float_value = float_value[0]
+         else:
+            float_value = f"[{', '.join(map(str, float_value))}]"
+         print(f"let {operand_js_name(node.output[0])} = {float_value}");
       else:
          terminateForUnsupportedNode(node);
 
@@ -200,6 +230,8 @@ def generateConstantOfShape(node, model_proto):
       type = 'int64';
    elif node.attribute[0].t.data_type == 1:
       type = 'float32'
+   elif node.attribute[0].t.data_type == 10:
+      type = 'float16'
    else :
       terminateForUnsupportedNode(node);
    generateConstant(node, model_proto);
@@ -232,6 +264,8 @@ def generateCast(node, model_proto):
        dest_datatype = "int64";
     elif node.attribute[0].i == 1:
        dest_datatype = "float32";
+    elif node.attribute[0].i == 10:
+       dest_datatype = "float16";
     elif node.attribute[0].i == 9:
        # 9 is supposed to be bool but there is no way to represent that in webnn
        dest_datatype = "uint8";
@@ -357,8 +391,14 @@ def generateDynamicQuantizeLinear(node, model_proto):
 def generateMatMulInteger(node, model_proto):
    print(f"{prepend_let('intermediate_' + operand_js_name(node.input[0]))} = builder.sub(builder.cast({operand_js_name(node.input[0])}, 'int32'), builder.cast({operand_js_name(node.input[2])}, 'int32'))");
    print(f"{prepend_let('intermediate_' + operand_js_name(node.input[2]))} = builder.sub(builder.cast({operand_js_name(node.input[1])}, 'int32'), builder.cast({operand_js_name(node.input[3])}, 'int32'))");
+   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[0]))} = builder.cast( {'intermediate_' + operand_js_name(node.input[0])}, 'float16')");
+   print(f"{prepend_let('intermediate_' + operand_js_name(node.input[2]))} = builder.cast( {'intermediate_' + operand_js_name(node.input[2])}, 'float16')");
    print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.matmul({'intermediate_'+operand_js_name(node.input[0])}, {'intermediate_'+operand_js_name(node.input[2])})");
-   
+   print(f"{prepend_let(operand_js_name(node.output[0]))}  = builder.cast({operand_js_name(node.output[0])}, 'int32')");
+
+def generateMatMul(node, model_proto):
+   print(f"{prepend_let(operand_js_name(node.output[0]))} = builder.matmul({operand_js_name(node.input[0])}, {operand_js_name(node.input[1])})");
+
 def translate_node_to_webnn(node, model_proto):
    match node.op_type:
     case "Conv":
@@ -372,7 +412,7 @@ def translate_node_to_webnn(node, model_proto):
     case "Neg":
        generateUnary("neg", node, model_proto);
     case "Softmax":
-       generateUnary("softmax", node, model_proto);
+       generateSoftmax(node, model_proto);
     case "Mul":
        generateBinary("mul", node, model_proto);
     case "Div":
@@ -431,6 +471,8 @@ def translate_node_to_webnn(node, model_proto):
        generateDynamicQuantizeLinear(node, model_proto);
     case "Less":
        generateBinary("lesser", node, model_proto);
+    case "MatMul":
+       generateMatMul(node, model_proto);
     case "MatMulInteger":
        generateMatMulInteger(node, model_proto);
     case _:

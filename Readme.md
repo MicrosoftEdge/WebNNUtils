@@ -61,5 +61,9 @@ For some models the ouputs of certain ops need to return CPU values. This is bec
 that are available only on the CPU. CPUGraphPartitioner.py walks through the generated code and annotates such ops that need to
 produce CPU values with cpu_ prefix. These ops will then used the polyfilled version of the op from CpuOps.js.
 
+Why do we have non cpu_ annotated software ops then ? These are either for decomposition or to handle this case where results of
+a shape operation are processed in a graph. It makes little sense to upload tiny tensors of a shape operation to the GPU and 
+perform math on them. They are retained on CPU as long as possible.
+
 ### Summary
 The way to use RapidWebNN is to first run RapidWebNN.py > ReorderModel.py > CPUGraphPartitioner.py. The resulting file can be referenced in your Html and graph loaded with loadModelGraph.

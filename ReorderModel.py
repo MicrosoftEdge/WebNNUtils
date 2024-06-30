@@ -1,5 +1,11 @@
 import re
 import sys
+import argparse
+
+# Setup command-line arguments using argparse
+parser = argparse.ArgumentParser(description='Reorder lines based on operand order in an ONNX model file.')
+parser.add_argument('file_path', type=str, help='Path to the input file for reordering.')
+args = parser.parse_args()
 
 initialized_operands = set()
 def is_line_ready(line):
@@ -38,7 +44,5 @@ def reorder_lines(file_path):
             else:
                 unready_lines.add(line);
 
-
-file_path = '.\RapidChat\models\model.js'  # Replace with the actual file path
-reorder_lines(file_path)
+reorder_lines(args.file_path)
 assert(len(unready_lines) == 0);

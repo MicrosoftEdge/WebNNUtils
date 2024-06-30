@@ -1,7 +1,13 @@
 import re
 import sys
+import argparse
 
-file_path = '.\RapidChat\models\model_reordered.js'
+# Setup command-line arguments using argparse
+parser = argparse.ArgumentParser(description='Reorder lines based on operand order in an ONNX model file.')
+parser.add_argument('file_path', type=str, help='Path to the input file for reordering.')
+args = parser.parse_args()
+
+file_path = args.file_path;
 cpu_operands = [];
 cpu_operators_found = set();
 # operators whose second parameter need to be on CPU

@@ -107,6 +107,15 @@ function InstallCpuOps(builder) {
             return original.apply(this, args);
         };
     }
+    function sqrt(original) {
+        return function (...args) {
+            if (args[0] instanceof Array)
+            {
+                args[0] = GenerateMLOperandFromArray(args[0], 'float32');
+            }
+            return original.apply(this, args);
+        };
+    }
     function reshape(original) {
         return function (...args) {
             if (typeof args[0] === 'number')
@@ -186,9 +195,17 @@ function InstallCpuOps(builder) {
             {
                 return args[0];
             }
-            if (args[0] instanceof Array && args[1] == "int64")
+            if (typeof args[0] === 'number' && args[1] == "float32")
+            {
+                return args[0];
+            }
+            if (args[0] instanceof Array && args[1] == "int64" && args[0].length == 1)
             {
                 return BigInt(args[0][0]);
+            }
+            if (args[0] instanceof Array && args[1] == "float32")
+            {
+                return args[0];
             }
             return original.apply(this, args);
         };
@@ -471,6 +488,7 @@ function InstallCpuOps(builder) {
     builder.add = add(builder.add);
     builder.sub = sub(builder.sub);
     builder.pow = pow(builder.pow);
+    builder.sqrt = sqrt(builder.sqrt);
     builder.div = div(builder.div);
     builder.cast = cast(builder.cast);
     builder.reshape = reshape(builder.reshape);
