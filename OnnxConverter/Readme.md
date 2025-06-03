@@ -60,7 +60,7 @@ In some models, graph traversal results in code gen where the input operands are
 
 #### CPUGraphPartitioner.py
 For some models the outputs of certain ops need to return CPU values. This is because those values may be used later in operators 
-that are available only on the CPU. CPUGraphPartitioner.py walks through the generated code and annotates such ops that need to
+that are require those arguments to be JSNumbers. CPUGraphPartitioner.py walks through the generated code and annotates such ops that need to
 produce CPU values with cpu_ prefix. These ops will then used the polyfilled version of the op from CpuOps.js.
 
 Why do we have non cpu_ annotated software ops then ? These are either for decomposition or to handle this case where results of
