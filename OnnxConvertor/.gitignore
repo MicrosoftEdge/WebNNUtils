@@ -1,5 +1,0 @@
-node_modules
-Chat/models/decoder_model_merged_quantized.onnx
-Chat/models/tokenizer/onnx/decoder_model_merged_quantized.onnx
-model.js
-weights.bin

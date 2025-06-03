@@ -1,12 +1,12 @@
-# RapidWebNN
+# OnnxConvertor
 
-RapidWebNN a WebNN compiler for producing pure JS models from .onnx models.
+OnnxConvertor a WebNN compiler for producing pure JS models from .onnx models.
 
-## Philosophy
-While JS ML frameworks can evalute models in the browser, they involve shipping a framework and expensive load time preprocessing that impacts latency. During preprocessing frameworks determine the input shapes for operators, partition operators to those that need to run on CPU and optimize the model graph.
+## Introduction
+While JS ML frameworks can evaluate models in the browser, they involve shipping a framework and expensive load time preprocessing that impacts latency. During preprocessing frameworks determine the input shapes for operators, partition operators to those that need to run on CPU and optimize the model graph.
 
-With RapidWebNN there is no such overhead. At compile time RapidWebNN takes a static .onnx file and emits JS code that will build an 
-equivalent WebNN graph. The resulting JS code can be used in the browser. In other words RapidWebNN code gens a JS WebNN graph building
+With OnnxConvertor there is no such overhead. At compile time OnnxConvertor takes a static .onnx file and emits JS code that will build an 
+equivalent WebNN graph. The resulting JS code can be used in the browser. In other words OnnxConvertor code gens a JS WebNN graph building
 function with the following signature based on a .onnx file.
 
 ```
@@ -50,7 +50,7 @@ InstallCpuOps(builder);
 ### Other Challenges
 Generating the JS graph has some challenges, and they are addressed by adding seperate passes over generated code.
 
-#### RapidWebNN.py 
+#### OnnxConvertor.py 
 Main compiler that emits JS graph building code based on the onnx file.
 
 #### ReorderModel.py 
@@ -66,4 +66,4 @@ a shape operation are processed in a graph. It makes little sense to upload tiny
 perform math on them. They are retained on CPU as long as possible.
 
 ### Summary
-The way to use RapidWebNN is to first run RapidWebNN.py > ReorderModel.py > CPUGraphPartitioner.py. The resulting file can be referenced in your Html and graph loaded with loadModelGraph.
+The way to use OnnxConvertor is to first run OnnxConvertor.py > ReorderModel.py > CPUGraphPartitioner.py. The resulting file can be referenced in your Html and graph loaded with loadModelGraph.
