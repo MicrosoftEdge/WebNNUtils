@@ -38,9 +38,7 @@ For example, an onnx graph that has
 a = tensor.shape();
 b = a * 2 
 ```
-will simply generate webnn graph nodes that call shape and the mul operator. This would mean that the mul op would normally throw an 
-exception because it expects tensors as inputs not JS numbers that a shape operator returns. Here is where the polyfill comes in to
-handle JSNumbers passed as input to a mul op.
+will simply generate webnn graph nodes that call shape and the mul operator. This implies that the mul operation would typically raise an exception, as it expects tensor inputs rather than JavaScript numbers, which are returned by shape operators. The polyfill addresses this issue by enabling the mul operation to handle JavaScript numbers as valid inputs.
 
 **CpuOps.js** defines all the polyfill ops needed to augment **MLGraphBuilder** with operators that work on JS Number. Before 
 loadModelGraph is called, the polyfill needs to be installed with
@@ -60,7 +58,7 @@ Main compiler that emits JS graph building code based on the onnx file.
 #### ReorderModel.py 
 In some models, graph traversal results in code gen where the input operands are computed after the point they are needed in. ReorderModel.py fixes the generated code for such models by reordering lines of code to ensure that inputs are available before being used.
 
-#### CPUGraphPartiioner.py
+#### CPUGraphPartitioner.py
 For some models the outputs of certain ops need to return CPU values. This is because those values may be used later in operators 
 that are available only on the CPU. CPUGraphPartitioner.py walks through the generated code and annotates such ops that need to
 produce CPU values with cpu_ prefix. These ops will then used the polyfilled version of the op from CpuOps.js.
