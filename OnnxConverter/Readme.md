@@ -1,19 +1,19 @@
 # OnnxConverter
 
-OnnxConverter a WebNN compiler for producing pure JS models from .onnx models.
+OnnxConverter a WebNN compiler for producing pure JavaScript (JS) models from .onnx models.
 
 ## Introduction
-While JS ML frameworks can evaluate models in the browser, they involve shipping a framework and expensive load time preprocessing that impacts latency. During preprocessing frameworks determine the input shapes for operators, partition operators to those that need to run on CPU and optimize the model graph.
+While JS ML frameworks can evaluate models in the browser, they involve shipping a framework and expensive load time preprocessing that impacts latency. During preprocessing, frameworks determine the input shapes for operators, partition operators to those that need to run on CPU, and optimize the model graph.
 
 With OnnxConverter there is no such overhead. At compile time OnnxConverter takes a static .onnx file and emits JS code that will build an 
-equivalent WebNN graph. The resulting JS code can be used in the browser. In other words OnnxConverter code gens a JS WebNN graph building
-function with the following signature based on a .onnx file. The builder parameter is the MLGraphBuilder WebNN javascript object.
+equivalent WebNN graph. The resulting JS code can be used in the browser. In other words, OnnxConverter code generates a JS WebNN graph-building
+function with the following signature based on a .onnx file. The builder parameter is the MLGraphBuilder WebNN JS object.
 
 ```
 function loadModelGraph(operand_input, weights_buffer, builder) {...}
 ```
 
-The weights from the .onnx model are emitted as a .bin file, which 
+The weights from the .onnx model are emitted as a .bin file which 
 the calling code needs to download and pass in as an ArrayBuffer.
 
 
@@ -30,11 +30,11 @@ const weights_buffer = await weights_response.arrayBuffer();
 ```
 
 ### How is shape inferencing handled?
-There is no shape inferencing, however the WebNN graph builder is polyfilled with methods that take non tensor, number array inputs. 
+There is no shape inferencing. However, the WebNN graph builder is polyfilled with methods that take non-tensor, number array inputs. 
 
-For example, an onnx graph that has 
+For example, an ONNX graph that has 
 ```
-// Pseudo code
+// Pseudocode
 a = tensor.shape();
 b = a * 2 
 ```
@@ -53,7 +53,7 @@ InstallCpuOps(builder);
 Generating the JS graph has some challenges, and they are addressed by adding separate passes over generated code.
 
 #### OnnxConverter.py 
-Main compiler that emits JS graph building code based on the onnx file.
+The main compiler that emits JS graph building code based on the ONNX file.
 
 #### ReorderModel.py 
 In some models, graph traversal results in code gen where the input operands are computed after the point they are needed in. ReorderModel.py fixes the generated code for such models by reordering lines of code to ensure that inputs are available before being used.
@@ -63,9 +63,9 @@ For some models the outputs of certain ops need to return CPU values. This is be
 that are require those arguments to be JSNumbers. CPUGraphPartitioner.py walks through the generated code and annotates such ops that need to
 produce CPU values with cpu_ prefix. These ops will then used the polyfilled version of the op from CpuOps.js.
 
-Why do we have non cpu_ annotated software ops then ? These are either for decomposition or to handle this case where results of
-a shape operation are processed in a graph. Results of a shape operation are retained on CPU as long as possible.
+Why do we have non-`cpu_` annotated software ops, then? These are either for decomposition or to handle this case where results of
+a shape operation are processed in a graph. The results of a shape operation are retained on CPU for as long as possible.
 
 ### Summary
 The way to use OnnxConverter is to first run OnnxConverter.py > ReorderModel.py > CPUGraphPartitioner.py. 
-The resulting file can be referenced in your Html and graph loaded with loadModelGraph.
+The resulting file can be referenced in your HTML and the graph can be loaded via loadModelGraph.
